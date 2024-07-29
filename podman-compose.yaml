@@ -1,0 +1,16 @@
+version: '3'
+volumes:
+  data:
+  export:
+services:
+  postgres:
+    image: docker.io/postgres:14-alpine
+    container_name: postgres-recipes
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_USER=root
+    volumes:
+      - data:/var/lib/postgresql/data
+      - export:/export
