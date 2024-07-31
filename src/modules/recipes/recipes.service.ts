@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { CreateRecipeDto } from './dto/create-recipe.dto';
 import { UpdateRecipeDto } from './dto/update-recipe.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -11,14 +11,34 @@ import {
 } from '../common/types/pagination.type';
 import { FilterRecipesQueryParams } from './recipes.types';
 import { FileStorageService } from '../file-storage/file-storage.service';
+import { CACHE_MANAGER, Cache } from '@nestjs/cache-manager';
+import { RedisStore } from 'cache-manager-redis-store';
 
 @Injectable()
 export class RecipesService {
+  private redisClient: ReturnType<RedisStore['getClient']>;
+  // TODO: move to constants ???
+  private singleRecipeCollectionKey = 'recipe';
+  private multipleRecipesCollectionKey = 'recipes';
+  private expirationInSeconds = 10;
+
   constructor(
     @InjectRepository(Recipe)
     private readonly recipeRepository: Repository<Recipe>,
     private readonly fileStorageService: FileStorageService,
-  ) {}
+    // of course interceptors could be used here
+    // but I intentionally wanted to expose underlying implementation (Redis) and use it as is
+    @Inject(CACHE_MANAGER) cacheManager: Cache,
+  ) {
+    const redisStore = cacheManager.store as unknown as RedisStore;
+
+    this.redisClient = redisStore.getClient();
+
+    this.redisClient.EXPIRE(
+      this.singleRecipeCollectionKey,
+      this.expirationInSeconds,
+    );
+  }
 
   async create(createRecipeDto: CreateRecipeDto, imageFile: Buffer) {
     const recipe = new Recipe();
@@ -45,14 +65,40 @@ export class RecipesService {
     return { count, data: result };
   }
 
-  findOne(id: string) {
-    return this.recipeRepository.find({
+  async findOne(id: string) {
+    const isAlreadyInCache = await this.redisClient.HEXISTS(
+      this.singleRecipeCollectionKey,
+      id,
+    );
+
+    if (isAlreadyInCache) {
+      const cachedValue = await this.redisClient.HGET(
+        this.singleRecipeCollectionKey,
+        id,
+      );
+
+      console.info(`Recipe ${id} was read from cache`);
+
+      return JSON.parse(cachedValue);
+    }
+
+    const recipe = await this.recipeRepository.find({
       where: { id },
       relations: {
         tags: true,
         chef: true,
       },
     });
+
+    await this.redisClient.HSET(
+      this.singleRecipeCollectionKey,
+      id,
+      JSON.stringify(recipe),
+    );
+
+    console.info(`Recipe ${id} was written to cache`);
+
+    return recipe;
   }
 
   update(id: string, updateRecipeDto: UpdateRecipeDto) {

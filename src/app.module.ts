@@ -8,14 +8,16 @@ import typeorm from './config/typeorm';
 import { config } from './config/index';
 import { AuthModule } from './modules/auth/auth.module';
 import { FileStorageModule } from './modules/file-storage/file-storage.module';
+import { CacheModule } from '@nestjs/cache-manager';
+import { RedisOptions } from './config/factories/redis-factory.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [config, typeorm] }),
+    CacheModule.registerAsync(RedisOptions),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => {
-        console.log(configService);
         return configService.get('typeorm');
       },
     }),

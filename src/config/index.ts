@@ -21,5 +21,10 @@ export function config(): Config {
       appSecret: process.env.DROPBOX_APP_SECRET,
       redirectUri: process.env.DROPBOX_REDIRECT_URI,
     },
+    cache: {
+      host: process.env.CACHE_HOST,
+      password: process.env.CACHE_PASSWORD,
+      port: process.env.CACHE_PORT,
+    },
   };
 }
