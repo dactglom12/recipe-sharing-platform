@@ -33,11 +33,6 @@ export class RecipesService {
     const redisStore = cacheManager.store as unknown as RedisStore;
 
     this.redisClient = redisStore.getClient();
-
-    this.redisClient.EXPIRE(
-      this.singleRecipeCollectionKey,
-      this.expirationInSeconds,
-    );
   }
 
   async create(createRecipeDto: CreateRecipeDto, imageFile: Buffer) {
@@ -94,6 +89,11 @@ export class RecipesService {
       this.singleRecipeCollectionKey,
       id,
       JSON.stringify(recipe),
+    );
+
+    await this.redisClient.EXPIRE(
+      this.singleRecipeCollectionKey,
+      this.expirationInSeconds,
     );
 
     console.info(`Recipe ${id} was written to cache`);
