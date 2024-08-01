@@ -19,8 +19,7 @@ export class RecipesService {
   private redisClient: ReturnType<RedisStore['getClient']>;
   // TODO: move to constants ???
   private singleRecipeCollectionKey = 'recipe';
-  private multipleRecipesCollectionKey = 'recipes';
-  private expirationInSeconds = 10;
+  private recipesPopularityCollectionKey = 'recipes-popularity';
 
   constructor(
     @InjectRepository(Recipe)
@@ -28,11 +27,14 @@ export class RecipesService {
     private readonly fileStorageService: FileStorageService,
     // of course interceptors could be used here
     // but I intentionally wanted to expose underlying implementation (Redis) and use it as is
-    @Inject(CACHE_MANAGER) cacheManager: Cache,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {
     const redisStore = cacheManager.store as unknown as RedisStore;
 
     this.redisClient = redisStore.getClient();
+
+    this.redisClient.EXPIRE(this.recipesPopularityCollectionKey, 100);
+    this.redisClient.EXPIRE(this.singleRecipeCollectionKey, 100);
   }
 
   async create(createRecipeDto: CreateRecipeDto, imageFile: Buffer) {
@@ -60,7 +62,9 @@ export class RecipesService {
     return { count, data: result };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string): Promise<Recipe> {
+    await this.increasePopularity(id);
+
     const isAlreadyInCache = await this.redisClient.HEXISTS(
       this.singleRecipeCollectionKey,
       id,
@@ -72,12 +76,10 @@ export class RecipesService {
         id,
       );
 
-      console.info(`Recipe ${id} was read from cache`);
-
       return JSON.parse(cachedValue);
     }
 
-    const recipe = await this.recipeRepository.find({
+    const recipe = await this.recipeRepository.findOne({
       where: { id },
       relations: {
         tags: true,
@@ -91,14 +93,28 @@ export class RecipesService {
       JSON.stringify(recipe),
     );
 
-    await this.redisClient.EXPIRE(
-      this.singleRecipeCollectionKey,
-      this.expirationInSeconds,
+    return recipe;
+  }
+
+  async getNPopular(n: number) {
+    const range = await this.redisClient.ZRANGE(
+      this.recipesPopularityCollectionKey,
+      0,
+      n - 1,
+      {
+        REV: true,
+      },
     );
 
-    console.info(`Recipe ${id} was written to cache`);
+    const result = await Promise.allSettled(
+      range.map((id) => this.findOne(id)),
+    );
 
-    return recipe;
+    return result.reduce((acc, curr) => {
+      if (curr.status === 'rejected') return acc;
+
+      return [...acc, curr.value];
+    }, []);
   }
 
   update(id: string, updateRecipeDto: UpdateRecipeDto) {
@@ -179,5 +195,9 @@ export class RecipesService {
     }
 
     return builder;
+  }
+
+  private async increasePopularity(id: string) {
+    return this.redisClient.ZINCRBY(this.recipesPopularityCollectionKey, 1, id);
   }
 }

@@ -17,6 +17,8 @@ import { UpdateRecipeDto } from './dto/update-recipe.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtGuard } from 'src/guards/jwt.guard';
 
+const DEFAULT_POPULAR_QUANTITY = 10;
+
 @Controller('recipes')
 export class RecipesController {
   constructor(private readonly recipesService: RecipesService) {}
@@ -31,6 +33,13 @@ export class RecipesController {
       publication_date: query.publication_date,
       tags: query.tags ? query.tags.split(',') : undefined,
     });
+  }
+
+  @Get('/popular')
+  getPopular(@Query() query: Record<string, string>) {
+    return this.recipesService.getNPopular(
+      query.popular ? Number(query.popular) : DEFAULT_POPULAR_QUANTITY,
+    );
   }
 
   @Get(':id')
